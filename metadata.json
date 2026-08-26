@@ -1,0 +1,6 @@
+{
+  "name": "Travel Money",
+  "description": "App para repartir gastos de viajes en grupo con múltiples monedas, categorías, estadísticas, liquidación de saldos y sincronización con Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

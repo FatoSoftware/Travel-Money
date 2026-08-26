@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="50%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <g transform="translate(106, 106)" filter="url(#shadow)">
+    <!-- Plane icon -->
+    <path d="M260 40 L210 120 L80 100 L40 140 L160 190 L120 250 L60 250 L30 280 L110 300 L170 270 L230 190 L270 90 Z" fill="#ffffff" opacity="0.25"/>
+    <!-- Wallet / Split Money Emblem -->
+    <rect x="20" y="50" width="260" height="200" rx="36" fill="#ffffff" />
+    <path d="M20 110 L280 110" stroke="#f1f5f9" stroke-width="8" />
+    <circle cx="210" cy="160" r="28" fill="#f43f5e" />
+    <text x="210" y="171" font-size="28" font-weight="900" font-family="sans-serif" text-anchor="middle" fill="#ffffff">€</text>
+    <!-- Multi-person icon -->
+    <circle cx="90" cy="140" r="16" fill="#3b82f6" />
+    <path d="M60 190 C60 170 120 170 120 190 Z" fill="#3b82f6" />
+    <circle cx="140" cy="140" r="16" fill="#10b981" />
+    <path d="M110 190 C110 170 170 170 170 190 Z" fill="#10b981" />
+  </g>
+</svg>

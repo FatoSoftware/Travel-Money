@@ -1,0 +1,17 @@
+{
+  "short_name": "TravelMoney",
+  "name": "Travel Money - Reparto de Gastos",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "display": "standalone",
+  "orientation": "portrait",
+  "description": "Divide y gestiona gastos en viajes con base de datos en Google Sheets y modo offline."
+}
