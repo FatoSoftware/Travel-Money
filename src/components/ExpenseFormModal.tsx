@@ -68,6 +68,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
   const [splitType, setSplitType] = useState<SplitType>('equal');
   const [includedParticipantIds, setIncludedParticipantIds] = useState<string[]>([]);
   const [customAmounts, setCustomAmounts] = useState<Record<string, string>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (expenseToEdit) {
@@ -634,13 +635,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
             {expenseToEdit && onDelete ? (
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm('¿Seguro que deseas eliminar este gasto?')) {
-                    onDelete(expenseToEdit.id);
-                    onClose();
-                  }
-                }}
-                className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 flex items-center gap-1.5 text-xs font-bold transition-all"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95"
               >
                 <Trash2 className="w-4 h-4" />
                 Eliminar
@@ -653,7 +649,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
+                className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95"
               >
                 Cancelar
               </button>
@@ -668,6 +664,48 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({
             </div>
           </div>
         </form>
+
+        {/* In-App Delete Expense Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-150">
+            <div
+              className="bg-white border border-rose-100 text-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto text-xl">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1.5">
+                <h4 className="font-extrabold text-base text-slate-900">¿Eliminar este gasto?</h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  ¿Seguro que deseas eliminar el gasto <strong className="text-slate-900">"{expenseToEdit?.title}"</strong>?
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (expenseToEdit && onDelete) {
+                      onDelete(expenseToEdit.id);
+                      setShowDeleteConfirm(false);
+                      onClose();
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-100 active:scale-95 transition-all"
+                >
+                  Sí, eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

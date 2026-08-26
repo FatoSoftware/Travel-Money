@@ -21,6 +21,7 @@ export const CategoriesManager: React.FC<CategoriesManagerProps> = ({
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('Utensils');
@@ -45,7 +46,6 @@ export const CategoriesManager: React.FC<CategoriesManagerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('Introduce un nombre para la categoría');
       return;
     }
 
@@ -70,15 +70,10 @@ export const CategoriesManager: React.FC<CategoriesManagerProps> = ({
     setEditingCategory(null);
   };
 
-  const handleDelete = (catId: string, catName: string) => {
-    const isUsed = expenses.some((e) => e.categoryId === catId);
-    if (isUsed) {
-      alert(`No se puede eliminar la categoría "${catName}" porque tiene gastos asignados.`);
-      return;
-    }
-    if (confirm(`¿Eliminar la categoría "${catName}"?`)) {
-      onDeleteCategory(catId);
-    }
+  const handleConfirmDelete = () => {
+    if (!categoryToDelete) return;
+    onDeleteCategory(categoryToDelete.id);
+    setCategoryToDelete(null);
   };
 
   return (
@@ -228,14 +223,14 @@ export const CategoriesManager: React.FC<CategoriesManagerProps> = ({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => handleOpenEdit(cat)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all active:scale-95"
                   title="Editar"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={() => handleDelete(cat.id, cat.name)}
-                  className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition-all"
+                  onClick={() => setCategoryToDelete(cat)}
+                  className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-all active:scale-95"
                   title="Eliminar"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -245,6 +240,47 @@ export const CategoriesManager: React.FC<CategoriesManagerProps> = ({
           );
         })}
       </div>
+
+      {/* In-App Delete Category Confirmation Modal */}
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="bg-white border border-rose-100 text-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto text-xl">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h4 className="font-extrabold text-base text-slate-900">¿Eliminar categoría?</h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                ¿Deseas eliminar la categoría <strong className="text-slate-900">"{categoryToDelete.name}"</strong>?
+              </p>
+              {expenses.some((e) => e.categoryId === categoryToDelete.id) && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200 font-medium">
+                  ⚠️ Esta categoría tiene gastos asignados.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCategoryToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-100 active:scale-95 transition-all"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

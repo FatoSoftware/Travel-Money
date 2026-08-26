@@ -27,6 +27,7 @@ export const ParticipantsManager: React.FC<ParticipantsManagerProps> = ({
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
+  const [participantToDelete, setParticipantToDelete] = useState<Participant | null>(null);
 
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState('👤');
@@ -54,7 +55,6 @@ export const ParticipantsManager: React.FC<ParticipantsManagerProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('Introduce un nombre para el participante');
       return;
     }
 
@@ -82,20 +82,10 @@ export const ParticipantsManager: React.FC<ParticipantsManagerProps> = ({
     setEditingParticipant(null);
   };
 
-  const handleDelete = (participantId: string, participantName: string) => {
-    const hasExpenses = tripExpenses.some(
-      (e) => e.paidById === participantId || e.splits?.some((s) => s.participantId === participantId && s.isIncluded !== false)
-    );
-
-    if (hasExpenses) {
-      if (!confirm(`⚠️ ${participantName} tiene gastos o participaciones en este viaje. Si lo eliminas, afectará a las cuentas. ¿Deseas continuar?`)) {
-        return;
-      }
-    } else {
-      if (!confirm(`¿Eliminar a ${participantName} del viaje?`)) return;
-    }
-
-    onDeleteParticipant(participantId);
+  const handleConfirmDelete = () => {
+    if (!participantToDelete) return;
+    onDeleteParticipant(participantToDelete.id);
+    setParticipantToDelete(null);
   };
 
   return (
@@ -244,25 +234,64 @@ export const ParticipantsManager: React.FC<ParticipantsManagerProps> = ({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => handleOpenEdit(p)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all"
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all active:scale-95"
                   title="Editar"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
-                {tripParticipants.length > 1 && (
-                  <button
-                    onClick={() => handleDelete(p.id, p.name)}
-                    className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 transition-all"
-                    title="Eliminar"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <button
+                  onClick={() => setParticipantToDelete(p)}
+                  className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-all active:scale-95"
+                  title="Eliminar"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* In-App Delete Participant Confirmation Modal */}
+      {participantToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="bg-white border border-rose-100 text-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto text-xl">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h4 className="font-extrabold text-base text-slate-900">¿Eliminar participante?</h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                ¿Deseas eliminar a <strong className="text-slate-900">"{participantToDelete.name}"</strong> de este viaje?
+              </p>
+              {tripExpenses.some((e) => e.paidById === participantToDelete.id) && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200 font-medium">
+                  ⚠️ Este participante tiene gastos pagados registrados.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setParticipantToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-100 active:scale-95 transition-all"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

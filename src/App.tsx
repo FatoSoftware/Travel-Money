@@ -213,12 +213,42 @@ export default function App() {
   const handleDeleteTrip = (tripId: string) => {
     setAppState((prev) => {
       const remainingTrips = prev.trips.filter((t) => t.id !== tripId);
-      const nextActiveId = remainingTrips.length > 0 ? remainingTrips[0].id : null;
+      let nextTrips = remainingTrips;
+      let nextActiveId = remainingTrips.length > 0 ? remainingTrips[0].id : null;
+      let nextParticipants = prev.participants.filter((p) => p.tripId !== tripId);
+
+      // If user deleted the last trip, provide a clean default trip so the app stays functional
+      if (remainingTrips.length === 0) {
+        const defaultTrip: Trip = {
+          id: `trip-${Date.now()}`,
+          name: 'Nuevo Viaje',
+          startDate: new Date().toISOString().split('T')[0],
+          endDate: new Date().toISOString().split('T')[0],
+          baseCurrency: 'EUR',
+          currencies: ['EUR'],
+          exchangeRates: { EUR: 1.0 },
+          coverEmoji: '✈️',
+          coverGradient: 'from-indigo-600 to-rose-500',
+          createdAt: new Date().toISOString(),
+        };
+        const defaultParticipant: Participant = {
+          id: `part-${Date.now()}`,
+          tripId: defaultTrip.id,
+          name: 'Yo',
+          avatar: '👤',
+          color: '#4F46E5',
+          weight: 1,
+        };
+        nextTrips = [defaultTrip];
+        nextActiveId = defaultTrip.id;
+        nextParticipants = [defaultParticipant];
+      }
+
       return {
         ...prev,
-        trips: remainingTrips,
+        trips: nextTrips,
         activeTripId: nextActiveId,
-        participants: prev.participants.filter((p) => p.tripId !== tripId),
+        participants: nextParticipants,
         expenses: prev.expenses.filter((e) => e.tripId !== tripId),
         settlements: prev.settlements.filter((s) => s.tripId !== tripId),
       };

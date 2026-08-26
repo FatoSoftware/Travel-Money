@@ -45,6 +45,8 @@ export const TripManager: React.FC<TripManagerProps> = ({
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
+  const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
+  const [showResetDemoConfirm, setShowResetDemoConfirm] = useState(false);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -151,14 +153,14 @@ export const TripManager: React.FC<TripManagerProps> = ({
     setEditingTrip(null);
   };
 
-  const handleDelete = (tripId: string, tripName: string) => {
-    if (trips.length <= 1) {
-      alert('Debes tener al menos un viaje en la aplicación.');
-      return;
-    }
-    if (confirm(`¿Estás seguro de eliminar el viaje "${tripName}" y todos sus gastos?`)) {
-      onDeleteTrip(tripId);
-    }
+  const handleDeleteClick = (t: Trip) => {
+    setTripToDelete(t);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!tripToDelete) return;
+    onDeleteTrip(tripToDelete.id);
+    setTripToDelete(null);
   };
 
   const content = (
@@ -438,20 +440,18 @@ export const TripManager: React.FC<TripManagerProps> = ({
                   )}
                   <button
                     onClick={() => handleOpenEdit(t)}
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600"
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-all active:scale-95"
                     title="Editar viaje"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
-                  {trips.length > 1 && (
-                    <button
-                      onClick={() => handleDelete(t.id, t.name)}
-                      className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600"
-                      title="Eliminar viaje"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleDeleteClick(t)}
+                    className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-all active:scale-95"
+                    title="Eliminar viaje"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -462,11 +462,8 @@ export const TripManager: React.FC<TripManagerProps> = ({
       {/* Reset Demo Data Button */}
       <div className="pt-4 border-t border-indigo-100 flex justify-center">
         <button
-          onClick={() => {
-            if (confirm('¿Restablecer los datos de ejemplo (Japón y Roma)?')) {
-              onResetDemoData();
-            }
-          }}
+          type="button"
+          onClick={() => setShowResetDemoConfirm(true)}
           className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -476,21 +473,103 @@ export const TripManager: React.FC<TripManagerProps> = ({
     </div>
   );
 
-  if (isModalOpen) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs animate-in fade-in duration-150">
-        <div className="bg-white border border-indigo-100 text-slate-900 w-full max-w-lg max-h-[90vh] rounded-3xl shadow-2xl p-5 overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-indigo-950">Gestionar Viajes</h3>
-            <button onClick={onCloseModal} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500">
-              <X className="w-4 h-4" />
-            </button>
+  return (
+    <>
+      {isModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white border border-indigo-100 text-slate-900 w-full max-w-lg max-h-[90vh] rounded-3xl shadow-2xl p-5 overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-indigo-950">Gestionar Viajes</h3>
+              <button onClick={onCloseModal} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {content}
           </div>
-          {content}
         </div>
-      </div>
-    );
-  }
+      ) : (
+        content
+      )}
 
-  return content;
+      {/* In-App Delete Trip Confirmation Modal */}
+      {tripToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="bg-white border border-rose-100 text-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto text-xl">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h4 className="font-extrabold text-base text-slate-900">¿Eliminar este viaje?</h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Estás a punto de eliminar el viaje <strong className="text-slate-900">"{tripToDelete.name}"</strong> y todos sus gastos, cuentas y participantes asociados.
+              </p>
+              {trips.length <= 1 && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-xl border border-amber-200 font-medium">
+                  ℹ️ Al ser tu único viaje, se creará automáticamente un nuevo viaje limpio.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setTripToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-100 active:scale-95 transition-all"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Reset Demo Confirmation Modal */}
+      {showResetDemoConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div
+            className="bg-white border border-indigo-100 text-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mx-auto">
+              <RefreshCw className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h4 className="font-extrabold text-base text-slate-900">¿Restablecer datos de prueba?</h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Se restaurarán los viajes de ejemplo (Japón y Roma) con sus gastos e historiales.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetDemoConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResetDemoConfirm(false);
+                  onResetDemoData();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-100 active:scale-95 transition-all"
+              >
+                Restablecer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 };
