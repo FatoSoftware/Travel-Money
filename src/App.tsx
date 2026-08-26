@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AppState,
   Trip,
@@ -19,7 +19,12 @@ import {
   resetToDemoData,
 } from './utils/storage';
 import { calculateTripSummary, calculateOptimalDebts } from './utils/calculations';
-import { syncWithGoogleSheetsWebhook } from './utils/sheetsSync';
+import {
+  pullFromGoogleSheets,
+  pushToGoogleSheets,
+  performTwoWaySync,
+  smartMergeStates,
+} from './utils/sheetsSync';
 import { Header } from './components/Header';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { ExpensesList } from './components/ExpensesList';
@@ -31,6 +36,7 @@ import { TripManager } from './components/TripManager';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { InstallGuideModal } from './components/InstallGuideModal';
 import { PARTICIPANT_COLORS } from './data/initialData';
+import { CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   // Load state from local storage
@@ -46,9 +52,34 @@ export default function App() {
 
   // Online / Offline state
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>(
+    appState.sheetsConfig?.syncStatus || 'idle'
+  );
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 4500);
+  };
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      const webhook = appState.sheetsConfig?.webhookUrl?.trim();
+      if (webhook && appState.sheetsConfig?.autoSync !== false) {
+        setSyncStatus('syncing');
+        performTwoWaySync(webhook, appState)
+          .then((res) => {
+            if (res.success && res.mergedState) {
+              setAppState(res.mergedState);
+              setSyncStatus('success');
+            }
+          })
+          .catch(() => setSyncStatus('error'));
+      }
+    };
     const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
@@ -58,22 +89,136 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [appState]);
 
   // Sync to localStorage on every change
   useEffect(() => {
     saveAppState(appState);
   }, [appState]);
 
-  // Live Auto-Sync to Google Sheets / Drive on every change
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>(
-    appState.sheetsConfig?.syncStatus || 'idle'
-  );
-  const isInitialMount = React.useRef(true);
-
+  // 1. Initial Mount: Check URL for #sync= or ?sync= to connect other devices in 1-click
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    const hash = window.location.hash;
+    const search = window.location.search;
+    let detectedUrl = '';
+
+    if (hash.includes('sync=')) {
+      const params = new URLSearchParams(hash.substring(1));
+      detectedUrl = params.get('sync') || '';
+    } else if (search.includes('sync=')) {
+      const params = new URLSearchParams(search);
+      detectedUrl = params.get('sync') || '';
+    }
+
+    if (detectedUrl && detectedUrl.startsWith('https://script.google.com')) {
+      window.history.replaceState(null, '', window.location.pathname);
+      setSyncStatus('syncing');
+
+      pullFromGoogleSheets(detectedUrl)
+        .then((res) => {
+          if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+            setAppState((prev) => {
+              const updatedConfig: GoogleSheetsConfig = {
+                ...prev.sheetsConfig,
+                webhookUrl: detectedUrl,
+                autoSync: true,
+                lastSyncDate: new Date().toISOString(),
+                syncStatus: 'success',
+              };
+              return smartMergeStates({ ...prev, sheetsConfig: updatedConfig }, res.data);
+            });
+            setSyncStatus('success');
+            showToast('¡Conectado con éxito! Se han descargado los datos de tu viaje compartido.');
+          }
+        })
+        .catch((err) => {
+          console.warn('Error syncing from share link:', err);
+          setSyncStatus('error');
+        });
+    } else {
+      // If webhookUrl already configured in storage, perform an initial pull to get latest data from other travelers
+      const existingUrl = appState.sheetsConfig?.webhookUrl?.trim();
+      if (existingUrl && appState.sheetsConfig?.autoSync !== false && navigator.onLine) {
+        setSyncStatus('syncing');
+        pullFromGoogleSheets(existingUrl)
+          .then((res) => {
+            if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+              setAppState((prev) => smartMergeStates(prev, res.data));
+              setSyncStatus('success');
+            } else {
+              setSyncStatus('success');
+            }
+          })
+          .catch((err) => {
+            console.warn('Initial cloud pull:', err);
+            setSyncStatus('idle');
+          });
+      }
+    }
+  }, []);
+
+  // 2. Background Pull when tab regains focus or visibility (so edits from other travelers appear seamlessly)
+  const lastFocusPullTime = useRef<number>(Date.now());
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        const webhookUrl = appState.sheetsConfig?.webhookUrl?.trim();
+        if (
+          webhookUrl &&
+          appState.sheetsConfig?.autoSync !== false &&
+          navigator.onLine &&
+          now - lastFocusPullTime.current > 20000
+        ) {
+          lastFocusPullTime.current = now;
+          pullFromGoogleSheets(webhookUrl)
+            .then((res) => {
+              if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+                setAppState((prev) => smartMergeStates(prev, res.data));
+                setSyncStatus('success');
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [appState.sheetsConfig?.webhookUrl, appState.sheetsConfig?.autoSync]);
+
+  // 3. Periodic Background Sync (every 45 seconds when online)
+  useEffect(() => {
+    const webhookUrl = appState.sheetsConfig?.webhookUrl?.trim();
+    if (!webhookUrl || appState.sheetsConfig?.autoSync === false || !isOnline) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        pullFromGoogleSheets(webhookUrl)
+          .then((res) => {
+            if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+              setAppState((prev) => smartMergeStates(prev, res.data));
+            }
+          })
+          .catch(() => {});
+      }
+    }, 45000);
+
+    return () => clearInterval(interval);
+  }, [appState.sheetsConfig?.webhookUrl, appState.sheetsConfig?.autoSync, isOnline]);
+
+  // 4. Live Debounced Push to Google Sheets on local state changes
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
       return;
     }
 
@@ -88,7 +233,7 @@ export default function App() {
 
     const timeoutId = setTimeout(async () => {
       try {
-        const res = await syncWithGoogleSheetsWebhook(webhookUrl!, appState);
+        const res = await pushToGoogleSheets(webhookUrl!, appState);
         if (res.success) {
           setSyncStatus('success');
           setAppState((prev) => ({
@@ -348,6 +493,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-indigo-50/50 text-slate-900 flex flex-col font-sans selection:bg-rose-500 selection:text-white">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-md w-[90%] bg-indigo-950 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-indigo-700 animate-in slide-in-from-top-4 fade-in duration-200">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <p className="text-xs font-semibold leading-snug flex-1">{toastMessage}</p>
+        </div>
+      )}
+
       {/* Header */}
       <Header
         trips={appState.trips}
