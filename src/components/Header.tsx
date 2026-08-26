@@ -77,12 +77,44 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-sheets-btn"
               onClick={onOpenSheetsModal}
-              title="Sincronización con Google Sheets"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all active:scale-95 shadow-xs"
+              title={
+                sheetsSyncStatus === 'syncing'
+                  ? 'Sincronizando automáticamente con Google Drive...'
+                  : sheetsSyncStatus === 'success'
+                  ? 'Sincronizado con Google Sheets'
+                  : sheetsSyncStatus === 'error'
+                  ? 'Error al sincronizar con Google Sheets'
+                  : 'Configurar sincronización automática con Google Sheets'
+              }
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 shadow-xs ${
+                sheetsSyncStatus === 'syncing'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 animate-pulse'
+                  : sheetsSyncStatus === 'success'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : sheetsSyncStatus === 'error'
+                  ? 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+              }`}
             >
               <Table className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Google Sheets</span>
-              {sheetsSyncStatus === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
+              <span className="hidden sm:inline">
+                {sheetsSyncStatus === 'syncing'
+                  ? 'Sincronizando...'
+                  : sheetsSyncStatus === 'success'
+                  ? 'Sheets ✓'
+                  : sheetsSyncStatus === 'error'
+                  ? 'Sheets (Error)'
+                  : 'Google Sheets'}
+              </span>
+              {sheetsSyncStatus === 'syncing' && (
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+              )}
+              {sheetsSyncStatus === 'success' && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              )}
+              {sheetsSyncStatus === 'error' && (
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              )}
             </button>
 
             {/* Install PWA Guide Button */}

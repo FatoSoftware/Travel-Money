@@ -42,6 +42,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
   onRestoreState,
 }) => {
   const [webhookUrl, setWebhookUrl] = useState(appState.sheetsConfig?.webhookUrl || '');
+  const [autoSync, setAutoSync] = useState(appState.sheetsConfig?.autoSync !== false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -66,7 +67,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     });
   };
 
-  const handleSyncWebhook = async () => {
+  const handleSaveAndSync = async () => {
     if (!webhookUrl.trim()) {
       alert('Por favor introduce la URL de tu aplicación web de Google Apps Script');
       return;
@@ -81,6 +82,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
         webhookUrl: webhookUrl.trim(),
+        autoSync: autoSync,
         lastSyncDate: new Date().toISOString(),
         syncStatus: 'success',
       });
@@ -92,12 +94,22 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
         webhookUrl: webhookUrl.trim(),
+        autoSync: autoSync,
         syncStatus: 'error',
         errorMessage: err.message,
       });
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const handleToggleAutoSync = (enabled: boolean) => {
+    setAutoSync(enabled);
+    onUpdateSheetsConfig({
+      ...appState.sheetsConfig,
+      webhookUrl: webhookUrl.trim(),
+      autoSync: enabled,
+    });
   };
 
   const handleExportJSON = () => {
@@ -213,14 +225,42 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                   className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
-                  onClick={handleSyncWebhook}
+                  onClick={handleSaveAndSync}
                   disabled={isSyncing}
                   className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-100 shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+                  {isSyncing ? 'Guardando...' : 'Sincronizar'}
                 </button>
               </div>
+            </div>
+
+            {/* Auto-Sync Toggle Switch */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span className="text-xs font-extrabold text-slate-900">
+                    Sincronización Automática en Tiempo Real
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Guarda automáticamente en Google Drive cada vez que añades, editas o eliminas un gasto.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleToggleAutoSync(!autoSync)}
+                className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out shrink-0 ${
+                  autoSync ? 'bg-indigo-600' : 'bg-slate-300'
+                }`}
+              >
+                <div
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
+                    autoSync ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
 
             {/* Sync Feedback Message */}

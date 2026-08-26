@@ -19,6 +19,7 @@ import {
   resetToDemoData,
 } from './utils/storage';
 import { calculateTripSummary, calculateOptimalDebts } from './utils/calculations';
+import { syncWithGoogleSheetsWebhook } from './utils/sheetsSync';
 import { Header } from './components/Header';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { ExpensesList } from './components/ExpensesList';
@@ -63,6 +64,62 @@ export default function App() {
   useEffect(() => {
     saveAppState(appState);
   }, [appState]);
+
+  // Live Auto-Sync to Google Sheets / Drive on every change
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>(
+    appState.sheetsConfig?.syncStatus || 'idle'
+  );
+  const isInitialMount = React.useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    const webhookUrl = appState.sheetsConfig?.webhookUrl?.trim();
+    const autoSyncActive = Boolean(webhookUrl && appState.sheetsConfig?.autoSync !== false);
+
+    if (!autoSyncActive || !isOnline) {
+      return;
+    }
+
+    setSyncStatus('syncing');
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const res = await syncWithGoogleSheetsWebhook(webhookUrl!, appState);
+        if (res.success) {
+          setSyncStatus('success');
+          setAppState((prev) => ({
+            ...prev,
+            sheetsConfig: {
+              ...prev.sheetsConfig,
+              lastSyncDate: new Date().toISOString(),
+              syncStatus: 'success',
+              errorMessage: undefined,
+            },
+          }));
+        } else {
+          setSyncStatus('error');
+        }
+      } catch (err: any) {
+        console.warn('Auto-sync error:', err);
+        setSyncStatus('error');
+      }
+    }, 1200);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    appState.trips,
+    appState.participants,
+    appState.categories,
+    appState.expenses,
+    appState.settlements,
+    appState.sheetsConfig?.webhookUrl,
+    appState.sheetsConfig?.autoSync,
+    isOnline,
+  ]);
 
   // Active Trip resolution
   const activeTrip = useMemo(() => {
@@ -274,7 +331,7 @@ export default function App() {
         onOpenSheetsModal={() => setIsSheetsModalOpen(true)}
         onOpenInstallGuide={() => setIsInstallGuideOpen(true)}
         isOnline={isOnline}
-        sheetsSyncStatus={appState.sheetsConfig?.syncStatus}
+        sheetsSyncStatus={syncStatus}
       />
 
       {/* Main Content Area */}

@@ -30,13 +30,16 @@ export const InstallGuideModal: React.FC<InstallGuideModalProps> = ({ isOpen, on
       >
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center font-bold">
-              <Smartphone className="w-5 h-5" />
-            </div>
+          <div className="flex items-center gap-3">
+            <img
+              src="icon.png"
+              alt="Icono Travel Money"
+              className="w-11 h-11 rounded-2xl shadow-md border border-indigo-100 object-cover"
+              referrerPolicy="no-referrer"
+            />
             <div>
               <h3 className="font-extrabold text-base text-indigo-950">Instalar en tu Móvil</h3>
-              <p className="text-xs text-slate-500">Acceso rápido y funcionamiento 100% offline</p>
+              <p className="text-xs text-slate-500">Acceso directo como app nativa y offline</p>
             </div>
           </div>
           <button

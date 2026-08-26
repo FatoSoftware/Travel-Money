@@ -3,15 +3,23 @@
   "name": "Travel Money - Reparto de Gastos",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.svg",
       "type": "image/svg+xml",
-      "sizes": "192x192 512x512"
+      "sizes": "any"
     }
   ],
-  "start_url": "/",
-  "background_color": "#020617",
-  "theme_color": "#0f172a",
+  "start_url": "./",
+  "scope": "./",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
   "display": "standalone",
   "orientation": "portrait",
-  "description": "Divide y gestiona gastos en viajes con base de datos en Google Sheets y modo offline."
+  "description": "Divide y gestiona gastos en viajes con sincronización automática en Google Sheets y funcionamiento offline."
 }
+
