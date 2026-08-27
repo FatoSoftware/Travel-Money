@@ -17,6 +17,8 @@ import {
   loadAppState,
   saveAppState,
   resetToDemoData,
+  addTombstone,
+  removeTombstone,
 } from './utils/storage';
 import { calculateTripSummary, calculateOptimalDebts } from './utils/calculations';
 import {
@@ -57,6 +59,15 @@ export default function App() {
   );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Ref to track latest state for async sync calls without stale closures
+  const appStateRef = useRef<AppState>(appState);
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
+
+  const isSyncInProgress = useRef(false);
+  const pendingPushTimer = useRef<NodeJS.Timeout | null>(null);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -64,20 +75,25 @@ export default function App() {
     }, 4500);
   };
 
+  // Reconnection Sync
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      const webhook = appState.sheetsConfig?.webhookUrl?.trim();
-      if (webhook && appState.sheetsConfig?.autoSync !== false) {
+      const webhook = appStateRef.current.sheetsConfig?.webhookUrl?.trim();
+      if (webhook && appStateRef.current.sheetsConfig?.autoSync !== false && !isSyncInProgress.current) {
         setSyncStatus('syncing');
-        performTwoWaySync(webhook, appState)
+        isSyncInProgress.current = true;
+        performTwoWaySync(webhook, appStateRef.current)
           .then((res) => {
             if (res.success && res.mergedState) {
               setAppState(res.mergedState);
               setSyncStatus('success');
             }
           })
-          .catch(() => setSyncStatus('error'));
+          .catch(() => setSyncStatus('error'))
+          .finally(() => {
+            isSyncInProgress.current = false;
+          });
       }
     };
     const handleOffline = () => setIsOnline(false);
@@ -89,7 +105,7 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [appState]);
+  }, []);
 
   // Sync to localStorage on every change
   useEffect(() => {
@@ -113,6 +129,7 @@ export default function App() {
     if (detectedUrl && detectedUrl.startsWith('https://script.google.com')) {
       window.history.replaceState(null, '', window.location.pathname);
       setSyncStatus('syncing');
+      isSyncInProgress.current = true;
 
       pullFromGoogleSheets(detectedUrl)
         .then((res) => {
@@ -134,12 +151,16 @@ export default function App() {
         .catch((err) => {
           console.warn('Error syncing from share link:', err);
           setSyncStatus('error');
+        })
+        .finally(() => {
+          isSyncInProgress.current = false;
         });
     } else {
       // If webhookUrl already configured in storage, perform an initial pull to get latest data from other travelers
       const existingUrl = appState.sheetsConfig?.webhookUrl?.trim();
-      if (existingUrl && appState.sheetsConfig?.autoSync !== false && navigator.onLine) {
+      if (existingUrl && appState.sheetsConfig?.autoSync !== false && navigator.onLine && !isSyncInProgress.current) {
         setSyncStatus('syncing');
+        isSyncInProgress.current = true;
         pullFromGoogleSheets(existingUrl)
           .then((res) => {
             if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
@@ -152,6 +173,9 @@ export default function App() {
           .catch((err) => {
             console.warn('Initial cloud pull:', err);
             setSyncStatus('idle');
+          })
+          .finally(() => {
+            isSyncInProgress.current = false;
           });
       }
     }
@@ -163,14 +187,16 @@ export default function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
-        const webhookUrl = appState.sheetsConfig?.webhookUrl?.trim();
+        const webhookUrl = appStateRef.current.sheetsConfig?.webhookUrl?.trim();
         if (
           webhookUrl &&
-          appState.sheetsConfig?.autoSync !== false &&
+          appStateRef.current.sheetsConfig?.autoSync !== false &&
           navigator.onLine &&
-          now - lastFocusPullTime.current > 20000
+          !isSyncInProgress.current &&
+          now - lastFocusPullTime.current > 15000
         ) {
           lastFocusPullTime.current = now;
+          isSyncInProgress.current = true;
           pullFromGoogleSheets(webhookUrl)
             .then((res) => {
               if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
@@ -178,7 +204,10 @@ export default function App() {
                 setSyncStatus('success');
               }
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => {
+              isSyncInProgress.current = false;
+            });
         }
       }
     };
@@ -190,9 +219,9 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [appState.sheetsConfig?.webhookUrl, appState.sheetsConfig?.autoSync]);
+  }, []);
 
-  // 3. Periodic Background Sync (every 45 seconds when online)
+  // 3. Periodic Background Sync (every 40 seconds when online)
   useEffect(() => {
     const webhookUrl = appState.sheetsConfig?.webhookUrl?.trim();
     if (!webhookUrl || appState.sheetsConfig?.autoSync === false || !isOnline) {
@@ -200,16 +229,23 @@ export default function App() {
     }
 
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        pullFromGoogleSheets(webhookUrl)
-          .then((res) => {
-            if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
-              setAppState((prev) => smartMergeStates(prev, res.data));
-            }
-          })
-          .catch(() => {});
+      if (document.visibilityState === 'visible' && !isSyncInProgress.current) {
+        const currentUrl = appStateRef.current.sheetsConfig?.webhookUrl?.trim();
+        if (currentUrl) {
+          isSyncInProgress.current = true;
+          pullFromGoogleSheets(currentUrl)
+            .then((res) => {
+              if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+                setAppState((prev) => smartMergeStates(prev, res.data));
+              }
+            })
+            .catch(() => {})
+            .finally(() => {
+              isSyncInProgress.current = false;
+            });
+        }
       }
-    }, 45000);
+    }, 40000);
 
     return () => clearInterval(interval);
   }, [appState.sheetsConfig?.webhookUrl, appState.sheetsConfig?.autoSync, isOnline]);
@@ -229,11 +265,19 @@ export default function App() {
       return;
     }
 
+    if (pendingPushTimer.current) {
+      clearTimeout(pendingPushTimer.current);
+    }
+
     setSyncStatus('syncing');
 
-    const timeoutId = setTimeout(async () => {
+    pendingPushTimer.current = setTimeout(async () => {
+      if (isSyncInProgress.current) {
+        return;
+      }
       try {
-        const res = await pushToGoogleSheets(webhookUrl!, appState);
+        isSyncInProgress.current = true;
+        const res = await pushToGoogleSheets(webhookUrl!, appStateRef.current);
         if (res.success) {
           setSyncStatus('success');
           setAppState((prev) => ({
@@ -251,10 +295,16 @@ export default function App() {
       } catch (err: any) {
         console.warn('Auto-sync error:', err);
         setSyncStatus('error');
+      } finally {
+        isSyncInProgress.current = false;
       }
     }, 1200);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      if (pendingPushTimer.current) {
+        clearTimeout(pendingPushTimer.current);
+      }
+    };
   }, [
     appState.trips,
     appState.participants,
@@ -304,11 +354,18 @@ export default function App() {
 
   // Handler: Add or Edit Expense
   const handleSaveExpense = (savedExpense: Expense) => {
+    removeTombstone('expenses', savedExpense.id);
+    const expenseWithTimestamp: Expense = {
+      ...savedExpense,
+      updatedAt: new Date().toISOString(),
+      createdAt: savedExpense.createdAt || new Date().toISOString(),
+    };
+
     setAppState((prev) => {
-      const exists = prev.expenses.some((e) => e.id === savedExpense.id);
+      const exists = prev.expenses.some((e) => e.id === expenseWithTimestamp.id);
       const updatedExpenses = exists
-        ? prev.expenses.map((e) => (e.id === savedExpense.id ? savedExpense : e))
-        : [savedExpense, ...prev.expenses];
+        ? prev.expenses.map((e) => (e.id === expenseWithTimestamp.id ? expenseWithTimestamp : e))
+        : [expenseWithTimestamp, ...prev.expenses];
 
       return {
         ...prev,
@@ -319,6 +376,7 @@ export default function App() {
 
   // Handler: Delete Expense
   const handleDeleteExpense = (expenseId: string) => {
+    addTombstone('expenses', expenseId);
     setAppState((prev) => ({
       ...prev,
       expenses: prev.expenses.filter((e) => e.id !== expenseId),
@@ -327,19 +385,31 @@ export default function App() {
 
   // Handler: Add Trip
   const handleAddTrip = (newTrip: Trip, initialParticipantNames: string[]) => {
-    const newParticipants: Participant[] = initialParticipantNames.map((name, idx) => ({
-      id: `part-${Date.now()}-${idx}`,
-      tripId: newTrip.id,
-      name: name,
-      avatar: ['👨🏻', '👩🏻', '🧔🏻', '👱🏼‍♀️', '👩🏽', '👨🏻‍🦱'][idx % 6] || '👤',
-      color: PARTICIPANT_COLORS[idx % PARTICIPANT_COLORS.length],
-      weight: 1,
-    }));
+    removeTombstone('trips', newTrip.id);
+    const tripWithTimestamp: Trip = {
+      ...newTrip,
+      updatedAt: new Date().toISOString(),
+      createdAt: newTrip.createdAt || new Date().toISOString(),
+    };
+
+    const newParticipants: Participant[] = initialParticipantNames.map((name, idx) => {
+      const pId = `part-${Date.now()}-${idx}`;
+      removeTombstone('participants', pId);
+      return {
+        id: pId,
+        tripId: tripWithTimestamp.id,
+        name: name,
+        avatar: ['👨🏻', '👩🏻', '🧔🏻', '👱🏼‍♀️', '👩🏽', '👨🏻‍🦱'][idx % 6] || '👤',
+        color: PARTICIPANT_COLORS[idx % PARTICIPANT_COLORS.length],
+        weight: 1,
+        updatedAt: new Date().toISOString(),
+      };
+    });
 
     setAppState((prev) => ({
       ...prev,
-      trips: [newTrip, ...prev.trips],
-      activeTripId: newTrip.id,
+      trips: [tripWithTimestamp, ...prev.trips],
+      activeTripId: tripWithTimestamp.id,
       participants: [...prev.participants, ...newParticipants],
     }));
 
@@ -348,14 +418,20 @@ export default function App() {
 
   // Handler: Update Trip
   const handleUpdateTrip = (updatedTrip: Trip) => {
+    removeTombstone('trips', updatedTrip.id);
+    const tripWithTimestamp: Trip = {
+      ...updatedTrip,
+      updatedAt: new Date().toISOString(),
+    };
     setAppState((prev) => ({
       ...prev,
-      trips: prev.trips.map((t) => (t.id === updatedTrip.id ? updatedTrip : t)),
+      trips: prev.trips.map((t) => (t.id === tripWithTimestamp.id ? tripWithTimestamp : t)),
     }));
   };
 
   // Handler: Delete Trip
   const handleDeleteTrip = (tripId: string) => {
+    addTombstone('trips', tripId);
     setAppState((prev) => {
       const remainingTrips = prev.trips.filter((t) => t.id !== tripId);
       let nextTrips = remainingTrips;
@@ -375,6 +451,7 @@ export default function App() {
           coverEmoji: '✈️',
           coverGradient: 'from-indigo-600 to-rose-500',
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         const defaultParticipant: Participant = {
           id: `part-${Date.now()}`,
@@ -383,6 +460,7 @@ export default function App() {
           avatar: '👤',
           color: '#4F46E5',
           weight: 1,
+          updatedAt: new Date().toISOString(),
         };
         nextTrips = [defaultTrip];
         nextActiveId = defaultTrip.id;
@@ -402,20 +480,25 @@ export default function App() {
 
   // Handler: Participants
   const handleAddParticipant = (p: Participant) => {
+    removeTombstone('participants', p.id);
+    const pWithTimestamp = { ...p, updatedAt: new Date().toISOString() };
     setAppState((prev) => ({
       ...prev,
-      participants: [...prev.participants, p],
+      participants: [...prev.participants, pWithTimestamp],
     }));
   };
 
   const handleUpdateParticipant = (p: Participant) => {
+    removeTombstone('participants', p.id);
+    const pWithTimestamp = { ...p, updatedAt: new Date().toISOString() };
     setAppState((prev) => ({
       ...prev,
-      participants: prev.participants.map((item) => (item.id === p.id ? p : item)),
+      participants: prev.participants.map((item) => (item.id === p.id ? pWithTimestamp : item)),
     }));
   };
 
   const handleDeleteParticipant = (pId: string) => {
+    addTombstone('participants', pId);
     setAppState((prev) => ({
       ...prev,
       participants: prev.participants.filter((item) => item.id !== pId),
@@ -433,20 +516,25 @@ export default function App() {
 
   // Handler: Categories
   const handleAddCategory = (c: Category) => {
+    removeTombstone('categories', c.id);
+    const cWithTimestamp = { ...c, updatedAt: new Date().toISOString() };
     setAppState((prev) => ({
       ...prev,
-      categories: [...prev.categories, c],
+      categories: [...prev.categories, cWithTimestamp],
     }));
   };
 
   const handleUpdateCategory = (c: Category) => {
+    removeTombstone('categories', c.id);
+    const cWithTimestamp = { ...c, updatedAt: new Date().toISOString() };
     setAppState((prev) => ({
       ...prev,
-      categories: prev.categories.map((item) => (item.id === c.id ? c : item)),
+      categories: prev.categories.map((item) => (item.id === c.id ? cWithTimestamp : item)),
     }));
   };
 
   const handleDeleteCategory = (cId: string) => {
+    addTombstone('categories', cId);
     setAppState((prev) => ({
       ...prev,
       categories: prev.categories.filter((item) => item.id !== cId),
@@ -455,13 +543,16 @@ export default function App() {
 
   // Handler: Settlements
   const handleAddSettlement = (s: Settlement) => {
+    removeTombstone('settlements', s.id);
+    const sWithTimestamp = { ...s, updatedAt: new Date().toISOString() };
     setAppState((prev) => ({
       ...prev,
-      settlements: [s, ...prev.settlements],
+      settlements: [sWithTimestamp, ...prev.settlements],
     }));
   };
 
   const handleDeleteSettlement = (sId: string) => {
+    addTombstone('settlements', sId);
     setAppState((prev) => ({
       ...prev,
       settlements: prev.settlements.filter((item) => item.id !== sId),

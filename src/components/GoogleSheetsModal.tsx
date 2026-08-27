@@ -8,8 +8,14 @@ import {
   pushToGoogleSheets,
   performTwoWaySync,
   smartMergeStates,
+  testGoogleSheetsConnection,
 } from '../utils/sheetsSync';
-import { exportBackupJSON, importBackupJSON } from '../utils/storage';
+import {
+  exportBackupJSON,
+  importBackupJSON,
+  restoreAutoBackup,
+  setPersistentWebhookUrl,
+} from '../utils/storage';
 import {
   Table,
   X,
@@ -31,6 +37,9 @@ import {
   ArrowUpFromLine,
   Smartphone,
   MessageCircle,
+  Unlink,
+  Activity,
+  History,
 } from 'lucide-react';
 
 interface GoogleSheetsModalProps {
@@ -53,8 +62,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
   const [webhookUrl, setWebhookUrl] = useState(appState.sheetsConfig?.webhookUrl || '');
   const [autoSync, setAutoSync] = useState(appState.sheetsConfig?.autoSync !== false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncType, setSyncType] = useState<'twoway' | 'pull' | 'push' | null>(null);
-  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [syncType, setSyncType] = useState<'twoway' | 'pull' | 'push' | 'test' | null>(null);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
@@ -103,9 +112,58 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
+  // Test Connection
+  const handleTestConnection = async () => {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
+      setSyncResult({
+        success: false,
+        message: 'Por favor introduce la URL de tu aplicación web de Google Apps Script',
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncType('test');
+    setSyncResult(null);
+
+    try {
+      const res = await testGoogleSheetsConnection(cleanUrl);
+      if (res.success) {
+        setPersistentWebhookUrl(cleanUrl);
+        onUpdateSheetsConfig({
+          ...appState.sheetsConfig,
+          webhookUrl: cleanUrl,
+          autoSync: autoSync,
+          syncStatus: 'success',
+          lastSyncDate: new Date().toISOString(),
+        });
+        setSyncResult({
+          success: true,
+          message: '¡Conexión verificada con éxito!',
+          details: `Hoja conectada. Gastos en la nube: ${res.expensesCount ?? 0}, Viajes: ${res.tripsCount ?? 0}. Gastos en este dispositivo: ${appState.expenses.length}.`,
+        });
+      } else {
+        setSyncResult({
+          success: false,
+          message: res.message,
+        });
+      }
+    } catch (err: any) {
+      setSyncResult({
+        success: false,
+        message: `Error al probar conexión: ${err.message}`,
+      });
+    } finally {
+      setIsSyncing(false);
+      setSyncType(null);
+    }
+  };
+
   // 1. Two-Way Sync (Pull + Merge + Push)
   const handleTwoWaySync = async () => {
-    if (!webhookUrl.trim()) {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
       alert('Por favor introduce la URL de tu aplicación web de Google Apps Script');
       return;
     }
@@ -115,14 +173,19 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     setSyncResult(null);
 
     try {
-      const res = await performTwoWaySync(webhookUrl.trim(), appState);
+      setPersistentWebhookUrl(cleanUrl);
+      const res = await performTwoWaySync(cleanUrl, appState);
       if (res.success && res.mergedState) {
         onRestoreState(res.mergedState);
       }
-      setSyncResult({ success: true, message: res.message });
+      setSyncResult({
+        success: true,
+        message: res.message,
+        details: `Total consolidado: ${res.mergedState?.expenses.length || appState.expenses.length} gastos.`,
+      });
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
-        webhookUrl: webhookUrl.trim(),
+        webhookUrl: cleanUrl,
         autoSync: autoSync,
         lastSyncDate: new Date().toISOString(),
         syncStatus: 'success',
@@ -134,7 +197,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
       });
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
-        webhookUrl: webhookUrl.trim(),
+        webhookUrl: cleanUrl,
         autoSync: autoSync,
         syncStatus: 'error',
         errorMessage: err.message,
@@ -147,7 +210,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
 
   // 2. Pull Only (Download cloud state into local device)
   const handlePullFromSheets = async () => {
-    if (!webhookUrl.trim()) {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
       alert('Por favor introduce la URL de tu aplicación web de Google Apps Script');
       return;
     }
@@ -157,23 +221,25 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     setSyncResult(null);
 
     try {
-      const res = await pullFromGoogleSheets(webhookUrl.trim());
-      if (res.success && res.data && res.data.trips && res.data.trips.length > 0) {
+      setPersistentWebhookUrl(cleanUrl);
+      const res = await pullFromGoogleSheets(cleanUrl);
+      if (res.success && res.data) {
         const merged = smartMergeStates(appState, res.data);
         onRestoreState(merged);
         setSyncResult({
           success: true,
-          message: `✅ Descargados ${res.data.expenses?.length || 0} gastos y ${res.data.trips?.length || 0} viajes desde la nube`,
+          message: `Descarga completada`,
+          details: `Se han fusionado ${res.data.expenses?.length || 0} gastos remotos con los datos locales sin perder nada.`,
         });
       } else {
         setSyncResult({
           success: true,
-          message: 'La hoja de Google Sheets está vacía o sin datos previos.',
+          message: 'La hoja de Google Sheets está lista para recibir datos.',
         });
       }
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
-        webhookUrl: webhookUrl.trim(),
+        webhookUrl: cleanUrl,
         autoSync: autoSync,
         lastSyncDate: new Date().toISOString(),
         syncStatus: 'success',
@@ -191,7 +257,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
 
   // 3. Push Only (Upload local device state to cloud)
   const handlePushToSheets = async () => {
-    if (!webhookUrl.trim()) {
+    const cleanUrl = webhookUrl.trim();
+    if (!cleanUrl) {
       alert('Por favor introduce la URL de tu aplicación web de Google Apps Script');
       return;
     }
@@ -201,14 +268,16 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     setSyncResult(null);
 
     try {
-      const res = await pushToGoogleSheets(webhookUrl.trim(), appState);
+      setPersistentWebhookUrl(cleanUrl);
+      const res = await pushToGoogleSheets(cleanUrl, appState);
       setSyncResult({
         success: true,
-        message: '✅ Todos los datos locales se han subido a Google Sheets',
+        message: 'Subida completada con éxito',
+        details: `Se han guardado ${appState.expenses.length} gastos y ${appState.trips.length} viajes en Google Sheets.`,
       });
       onUpdateSheetsConfig({
         ...appState.sheetsConfig,
-        webhookUrl: webhookUrl.trim(),
+        webhookUrl: cleanUrl,
         autoSync: autoSync,
         lastSyncDate: new Date().toISOString(),
         syncStatus: 'success',
@@ -224,8 +293,43 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
     }
   };
 
+  // Disconnect Webhook
+  const handleDisconnectWebhook = () => {
+    if (window.confirm('¿Deseas desconectar Google Sheets? Tus datos locales se mantendrán intactos en este dispositivo.')) {
+      setWebhookUrl('');
+      setPersistentWebhookUrl('');
+      onUpdateSheetsConfig({
+        ...appState.sheetsConfig,
+        webhookUrl: '',
+        autoSync: false,
+        syncStatus: 'idle',
+      });
+      setSyncResult({
+        success: true,
+        message: 'Google Sheets desconectado. Tus datos locales siguen a salvo.',
+      });
+    }
+  };
+
+  // Restore Auto Backup
+  const handleRestoreAutoBackup = () => {
+    const restored = restoreAutoBackup();
+    if (restored) {
+      onRestoreState(restored);
+      setSyncResult({
+        success: true,
+        message: `Copia de seguridad automática restaurada (${restored.expenses.length} gastos recuperados).`,
+      });
+    } else {
+      alert('No se encontró ninguna copia de seguridad automática anterior.');
+    }
+  };
+
   const handleToggleAutoSync = (enabled: boolean) => {
     setAutoSync(enabled);
+    if (webhookUrl.trim()) {
+      setPersistentWebhookUrl(webhookUrl.trim());
+    }
     onUpdateSheetsConfig({
       ...appState.sheetsConfig,
       webhookUrl: webhookUrl.trim(),
@@ -253,10 +357,10 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
         const text = event.target?.result as string;
         const newState = importBackupJSON(text);
         onRestoreState(newState);
-        alert('✅ Copia de seguridad importada con éxito');
+        alert('Copia de seguridad importada con éxito');
         onClose();
       } catch (err: any) {
-        alert(`❌ Error al importar copia: ${err.message}`);
+        alert(`Error al importar copia: ${err.message}`);
       }
     };
     reader.readAsText(file);
@@ -277,8 +381,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
               <Table className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base text-indigo-950">Sincronización Bidireccional</h3>
-              <p className="text-xs text-slate-500">Conecta todos los móviles de tu grupo al mismo Google Sheets</p>
+              <h3 className="font-extrabold text-base text-indigo-950">Sincronización en la Nube</h3>
+              <p className="text-xs text-slate-500">Google Sheets de alta fiabilidad y copia multi-dispositivo</p>
             </div>
           </div>
           <button
@@ -296,22 +400,34 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <RefreshCw className="w-5 h-5 text-indigo-600" />
-                <h4 className="font-extrabold text-sm text-slate-900">Sincronización en la Nube (Google Sheets)</h4>
+                <h4 className="font-extrabold text-sm text-slate-900">Google Apps Script Web App</h4>
               </div>
-              <span className="text-[10px] font-bold uppercase bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-full">
-                2 Vías (Multi-Dispositivo)
+              <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
+                Multi-Dispositivo V3
               </span>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Permite que varios viajeros añadan gastos desde sus propios dispositivos. Los cambios se combinan sin borrar la información de los demás.
+              Tus datos se guardan primero en la memoria local protegida de tu dispositivo y se sincronizan de forma segura con tu Google Sheets sin riesgo de sobrescritura.
             </p>
 
             {/* Input URL */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                URL de tu Aplicación Web de Google Sheets
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  URL de la Aplicación Web
+                </label>
+                {webhookUrl.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectWebhook}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 hover:underline"
+                  >
+                    <Unlink className="w-3 h-3" />
+                    Desconectar
+                  </button>
+                )}
+              </div>
               <input
                 type="url"
                 placeholder="https://script.google.com/macros/s/.../exec"
@@ -321,38 +437,49 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
               />
             </div>
 
-            {/* Action Buttons: 2-Way Sync, Pull, Push */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            {/* Action Buttons: Test Connection, 2-Way Sync, Pull, Push */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={isSyncing || !webhookUrl.trim()}
+                className="py-2.5 px-2.5 rounded-xl bg-white border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 text-indigo-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                title="Probar si el script responde correctamente"
+              >
+                <Activity className={`w-3.5 h-3.5 text-indigo-600 ${isSyncing && syncType === 'test' ? 'animate-pulse' : ''}`} />
+                {isSyncing && syncType === 'test' ? 'Probando...' : 'Probar Conexión'}
+              </button>
+
               <button
                 type="button"
                 onClick={handleTwoWaySync}
                 disabled={isSyncing || !webhookUrl.trim()}
-                className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 transition-all active:scale-95 sm:col-span-1"
+                className="py-2.5 px-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-indigo-100 flex items-center justify-center gap-1.5 transition-all active:scale-95"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing && syncType === 'twoway' ? 'animate-spin' : ''}`} />
-                {isSyncing && syncType === 'twoway' ? 'Sincronizando...' : 'Sincronizar (2 Vías)'}
+                {isSyncing && syncType === 'twoway' ? 'Sincronizando...' : 'Sincronizar'}
               </button>
 
               <button
                 type="button"
                 onClick={handlePullFromSheets}
                 disabled={isSyncing || !webhookUrl.trim()}
-                className="py-2.5 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                className="py-2.5 px-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
                 title="Descargar datos de Google Sheets a este dispositivo"
               >
                 <ArrowDownToLine className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing && syncType === 'pull' ? 'animate-bounce' : ''}`} />
-                {isSyncing && syncType === 'pull' ? 'Descargando...' : 'Descargar (Pull)'}
+                {isSyncing && syncType === 'pull' ? 'Descargando...' : 'Descargar'}
               </button>
 
               <button
                 type="button"
                 onClick={handlePushToSheets}
                 disabled={isSyncing || !webhookUrl.trim()}
-                className="py-2.5 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                className="py-2.5 px-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
                 title="Subir datos de este dispositivo a Google Sheets"
               >
-                <ArrowUpFromLine className={`w-3.5 h-3.5 text-indigo-600 ${isSyncing && syncType === 'push' ? 'animate-bounce' : ''}`} />
-                {isSyncing && syncType === 'push' ? 'Subiendo...' : 'Subir (Push)'}
+                <ArrowUpFromLine className={`w-3.5 h-3.5 text-rose-600 ${isSyncing && syncType === 'push' ? 'animate-bounce' : ''}`} />
+                {isSyncing && syncType === 'push' ? 'Subiendo...' : 'Subir'}
               </button>
             </div>
 
@@ -362,11 +489,11 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-amber-500" />
                   <span className="text-xs font-extrabold text-slate-900">
-                    Sincronización Automática en Tiempo Real
+                    Sincronización Automática en Segundo Plano
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Actualiza automáticamente en la nube cada vez que añades, editas o abres la app.
+                  Guarda automáticamente en la nube sin bloquear tu uso de la app.
                 </p>
               </div>
               <button
@@ -387,18 +514,25 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
             {/* Sync Feedback Message */}
             {syncResult && (
               <div
-                className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in duration-150 ${
+                className={`p-3.5 rounded-xl border text-xs space-y-1 animate-in fade-in duration-150 ${
                   syncResult.success
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-rose-50 border-rose-200 text-rose-900'
                 }`}
               >
-                {syncResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="flex items-center gap-2 font-bold">
+                  {syncResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{syncResult.message}</span>
+                </div>
+                {syncResult.details && (
+                  <p className="text-[11px] opacity-90 pl-6 leading-relaxed">
+                    {syncResult.details}
+                  </p>
                 )}
-                <span className="font-medium">{syncResult.message}</span>
               </div>
             )}
           </div>
@@ -409,8 +543,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-indigo-600" />
                 <div>
-                  <h4 className="font-extrabold text-sm text-indigo-950">Conectar a los demás viajeros del grupo</h4>
-                  <p className="text-xs text-slate-500">Envía este enlace para que se conecten al mismo viaje con 1 clic</p>
+                  <h4 className="font-extrabold text-sm text-indigo-950">Invitar a los demás viajeros</h4>
+                  <p className="text-xs text-slate-500">Conéctalos al mismo viaje y hoja de cálculo en 1 clic</p>
                 </div>
               </div>
 
@@ -421,7 +555,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                   className="flex-1 py-2.5 px-3 rounded-xl bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs"
                 >
                   {copiedShareLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-indigo-600" />}
-                  <span>{copiedShareLink ? '¡Enlace Copiado!' : 'Copiar Enlace de Sincronización'}</span>
+                  <span>{copiedShareLink ? '¡Enlace Copiado!' : 'Copiar Enlace de Invitación'}</span>
                 </button>
 
                 <button
@@ -435,7 +569,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
               </div>
 
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                💡 Al abrir el enlace en sus móviles, la app configurará la sincronización y descargará todos los gastos de <strong className="text-slate-800">"{trip.name}"</strong> inmediatamente.
+                Al abrir el enlace en sus teléfonos, la app se conectará automáticamente y descargará el viaje compartido <strong className="text-slate-800">"{trip.name}"</strong>.
               </p>
             </div>
           )}
@@ -445,7 +579,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-indigo-600" />
-                <span className="text-xs font-bold text-slate-800">Código de Google Apps Script (Versión 2 Bidireccional)</span>
+                <span className="text-xs font-bold text-slate-800">Código de Google Apps Script (Versión 3 Anti-Fallos)</span>
               </div>
               <button
                 type="button"
@@ -457,12 +591,36 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-600 space-y-1.5">
-              <p>1. En tu hoja de Google Sheets ve a <strong className="text-slate-900">Extensiones &gt; Apps Script</strong>.</p>
-              <p>2. Reemplaza el código anterior pegando este nuevo código.</p>
-              <p>3. Haz clic en <strong className="text-slate-900">Implementar &gt; Gestionar implementaciones &gt; Editar (lápiz) &gt; Versión: Nueva versión &gt; Implementar</strong>.</p>
-              <p>4. Verifica que el acceso sea <strong className="text-slate-900">"Cualquier usuario"</strong> (Anyone).</p>
+            <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <p>1. En tu Google Sheets ve a <strong className="text-slate-900">Extensiones &gt; Apps Script</strong>.</p>
+              <p>2. Reemplaza todo el código pegando el código actualizado.</p>
+              <p>3. Pulsa en <strong className="text-slate-900">Implementar &gt; Gestionar implementaciones &gt; Editar (icono lápiz) &gt; Versión: Nueva versión &gt; Implementar</strong>.</p>
+              <p>4. Asegúrate de que el acceso esté en <strong className="text-slate-900">"Cualquier usuario" (Anyone)</strong>.</p>
             </div>
+          </div>
+
+          {/* Emergency Auto Backup Recovery & Snapshots */}
+          <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-amber-700" />
+                <h4 className="font-extrabold text-xs text-amber-950">Protección de Datos y Copias Locales</h4>
+              </div>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                Respaldo Activo
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Si en algún momento sufres una pérdida de conexión o quieres volver al último estado seguro guardado en este dispositivo:
+            </p>
+            <button
+              type="button"
+              onClick={handleRestoreAutoBackup}
+              className="w-full py-2 px-3 rounded-xl bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs"
+            >
+              <History className="w-3.5 h-3.5 text-amber-600" />
+              Restaurar Última Copia de Seguridad Automática
+            </button>
           </div>
 
           {/* Option: Direct CSV Export */}
@@ -486,8 +644,8 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
           {/* Option: Local Backup JSON (Export & Import) */}
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-amber-500" />
-              <h4 className="font-extrabold text-xs text-slate-900">Copia de Seguridad Offline (JSON)</h4>
+              <ShieldCheck className="w-4 h-4 text-slate-600" />
+              <h4 className="font-extrabold text-xs text-slate-900">Copia de Seguridad Manual en Archivo (JSON)</h4>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -514,12 +672,13 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-md shadow-indigo-100"
           >
-            Cerrar
+            Listo
           </button>
         </div>
       </div>
     </div>
   );
 };
+

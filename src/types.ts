@@ -19,6 +19,7 @@ export interface Participant {
   weight?: number; // Default 1
   email?: string;
   phone?: string;
+  updatedAt?: string;
 }
 
 export interface Category {
@@ -28,6 +29,7 @@ export interface Category {
   icon: string; // Lucide icon name
   color: string; // Hex or color name
   description?: string;
+  updatedAt?: string;
 }
 
 export interface Expense {
@@ -61,6 +63,7 @@ export interface Settlement {
   date: string;
   status: 'pending' | 'completed';
   notes?: string;
+  updatedAt?: string;
 }
 
 export interface CurrencyInfo {
